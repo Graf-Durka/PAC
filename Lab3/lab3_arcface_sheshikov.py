@@ -107,6 +107,7 @@ class EuroDataset(Dataset):
 def main():
     train_paths, test_paths, class_to_idx = get_data_splits("EuroSAT_RGB")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using {device}")
     
     preprocess = transforms.Compose([
         transforms.ToPILImage(),
@@ -121,30 +122,36 @@ def main():
                              batch_size=32, shuffle=False)
 
     encoder = SatelliteEncoder(128).to(device)
-    cosine_head = CosineSimilarityHead(128, len(class_to_idx)).to(device)
-    
-    optimizer = torch.optim.Adam(list(encoder.parameters()) + list(cosine_head.parameters()), lr=0.001)
 
-    # Обучение
-    for epoch in range(3):
-        encoder.train()
-        total_loss = 0
-        for i, (imgs, lbls) in enumerate(train_loader):
-            imgs, lbls = imgs.to(device), lbls.to(device)
-            
-            optimizer.zero_grad()
-            embs = encoder(imgs)
-            scores = cosine_head(embs)
-            loss = arcface_loss(scores, lbls, len(class_to_idx))
-            
-            loss.backward()
-            optimizer.step()
-            
-            total_loss += loss.item()
-            if i % 50 == 0:
-                print(f"Epoch {epoch+1} | Batch {i}/{len(train_loader)} | Loss: {loss.item():.4f}")
+    if((input("Do you wnat to load preptrained model? (y/n) ")).lower() == "y"):
+        encoder.load_state_dict(torch.load("best_model.pth", map_location=device))
+    else:
+        cosine_head = CosineSimilarityHead(128, len(class_to_idx)).to(device)
         
-        print(f"== Epoch {epoch+1} Done. Avg Loss: {total_loss/len(train_loader):.4f}")
+        optimizer = torch.optim.Adam(list(encoder.parameters()) + list(cosine_head.parameters()), lr=0.001)
+
+        # Обучение
+        for epoch in range(3):
+            encoder.train()
+            total_loss = 0
+            for i, (imgs, lbls) in enumerate(train_loader):
+                imgs, lbls = imgs.to(device), lbls.to(device)
+                
+                optimizer.zero_grad()
+                embs = encoder(imgs)
+                scores = cosine_head(embs)
+                loss = arcface_loss(scores, lbls, len(class_to_idx))
+                
+                loss.backward()
+                optimizer.step()
+                
+                total_loss += loss.item()
+                if i % 50 == 0:
+                    print(f"Epoch {epoch+1} | Batch {i}/{len(train_loader)} | Loss: {loss.item():.4f}")
+            
+            print(f"== Epoch {epoch+1} Done. Avg Loss: {total_loss/len(train_loader):.4f}")
+
+        torch.save(encoder.state_dict(), "best_model.pth")
 
     # Визуализация
     encoder.eval()
